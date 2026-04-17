@@ -9,23 +9,42 @@ dotenv.config();
 
 const app = express();
 
+// ✅ CORS FIX (Production + Local)
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://bookify-frontend.vercel.app',
+];
+
 app.use(
   cors({
-    origin: 'http://localhost:3000',
+    origin: function (origin, callback) {
+      // يسمح للطلبات بدون origin (مثل Postman)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
     credentials: true,
   })
 );
 
+// Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Connect DB
 connectDB();
 
+// Static files
 app.use(
   '/uploads/covers',
   express.static(path.join(__dirname, 'uploads', 'covers'))
 );
 
+// Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/books', require('./routes/books'));
 app.use('/api/users', require('./routes/users'));
@@ -34,6 +53,7 @@ app.use('/api/transactions', require('./routes/transactions'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/messages', require('./routes/messages'));
 
+// Root route
 app.get('/', (req, res) => {
   res.json({
     message: 'Welcome to Bookify Electronic Library API',
@@ -50,6 +70,7 @@ app.get('/', (req, res) => {
   });
 });
 
+// Error handler
 app.use((err, req, res, next) => {
   console.error('Server Error:', err.stack);
   res
@@ -57,6 +78,7 @@ app.use((err, req, res, next) => {
     .json({ message: 'Internal Server Error', error: err.message });
 });
 
+// Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
