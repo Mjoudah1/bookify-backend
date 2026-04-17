@@ -1,4 +1,3 @@
-// backend/server.js
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
@@ -9,42 +8,51 @@ dotenv.config();
 
 const app = express();
 
-// ✅ CORS FIX (Production + Local)
 const allowedOrigins = [
   'http://localhost:3000',
-  'https://bookify-frontend.vercel.app',
-];
+  process.env.FRONTEND_URL,
+  ...(process.env.CORS_ORIGINS
+    ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim())
+    : []),
+].filter(Boolean);
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      // يسمح للطلبات بدون origin (مثل Postman)
-      if (!origin) return callback(null, true);
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
 
-      if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    credentials: true,
-  })
-);
+  try {
+    const parsed = new URL(origin);
+    return /\.vercel\.app$/i.test(parsed.hostname);
+  } catch {
+    return false;
+  }
+};
 
-// Body parsers
+const corsOptions = {
+  origin(origin, callback) {
+    if (isAllowedOrigin(origin)) {
+      callback(null, true);
+      return;
+    }
+
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Connect DB
 connectDB();
 
-// Static files
 app.use(
   '/uploads/covers',
   express.static(path.join(__dirname, 'uploads', 'covers'))
 );
 
-// Routes
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/books', require('./routes/books'));
 app.use('/api/users', require('./routes/users'));
@@ -53,7 +61,6 @@ app.use('/api/transactions', require('./routes/transactions'));
 app.use('/api/notifications', require('./routes/notifications'));
 app.use('/api/messages', require('./routes/messages'));
 
-// Root route
 app.get('/', (req, res) => {
   res.json({
     message: 'Welcome to Bookify Electronic Library API',
@@ -70,7 +77,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// Error handler
 app.use((err, req, res, next) => {
   console.error('Server Error:', err.stack);
   res
@@ -78,7 +84,6 @@ app.use((err, req, res, next) => {
     .json({ message: 'Internal Server Error', error: err.message });
 });
 
-// Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
