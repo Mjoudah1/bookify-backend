@@ -11,7 +11,7 @@
      - `https://bookify-frontend-877g.vercel.app`
      - `http://localhost:3000`
    - Authorized redirect URIs:
-     - `https://<your-backend-domain>/api/auth/social/google/callback`
+     - `https://bookify-backend-gk7e.onrender.com/api/auth/social/google/callback`
      - `http://localhost:5000/api/auth/social/google/callback`
 6. Copy the generated values into `backend/.env`:
    - `GOOGLE_CLIENT_ID`
