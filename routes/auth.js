@@ -102,9 +102,25 @@ const resolveFrontendUrl = (candidateOrigin) =>
 const resolveBackendUrl = (req) =>
   BACKEND_URL || `${req.protocol}://${req.get('host')}`;
 
+const GOOGLE_CALLBACK_PATH = '/api/auth/social/google/callback';
+
+const normalizeCallbackUri = (value, callbackPath) => {
+  if (!value) return '';
+
+  try {
+    const parsed = new URL(value);
+    parsed.pathname = callbackPath;
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return '';
+  }
+};
+
 const resolveGoogleRedirectUri = (req) =>
-  GOOGLE_REDIRECT_URI ||
-  `${resolveBackendUrl(req)}/api/auth/social/google/callback`;
+  normalizeCallbackUri(GOOGLE_REDIRECT_URI, GOOGLE_CALLBACK_PATH) ||
+  normalizeCallbackUri(resolveBackendUrl(req), GOOGLE_CALLBACK_PATH);
 
 const buildFrontendSocialRedirect = (frontendUrl, params) => {
   const search = new URLSearchParams(params);
