@@ -169,6 +169,7 @@ const findOrCreateSocialUser = async ({
 }) => {
   const providerField = 'googleId';
   const safeEmail = String(email || '').trim().toLowerCase();
+  let isNewUser = false;
 
   let user = await User.findOne({ [providerField]: providerId });
   if (!user && safeEmail) {
@@ -176,6 +177,7 @@ const findOrCreateSocialUser = async ({
   }
 
   if (!user) {
+    isNewUser = true;
     user = new User({
       username: normalizeUsername(username, `${provider} user`),
       email: safeEmail || createSyntheticEmail(provider, providerId),
@@ -207,7 +209,7 @@ const findOrCreateSocialUser = async ({
   }
 
   await user.save();
-  return user;
+  return { user, isNewUser };
 };
 
 /* =========================================================
@@ -719,7 +721,7 @@ router.get('/social/google/callback', async (req, res) => {
       );
     }
 
-    const user = await findOrCreateSocialUser({
+    const { user, isNewUser } = await findOrCreateSocialUser({
       provider: 'google',
       providerId: profile.sub,
       email: profile.email,
@@ -730,6 +732,7 @@ router.get('/social/google/callback', async (req, res) => {
     return res.redirect(
       buildFrontendSocialRedirect(decodedState.returnTo, {
         token,
+        isNewUser: isNewUser ? 'true' : 'false',
         hasInterests:
           Array.isArray(user.interests) && user.interests.length > 0
             ? 'true'
