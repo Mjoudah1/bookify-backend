@@ -27,8 +27,8 @@ const mapBookWithUrls = (req, bookDoc) => {
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const b = bookDoc.toObject ? bookDoc.toObject() : bookDoc;
 
-  if (b.coverImage) {
-    b.coverImageUrl = `${baseUrl}/uploads/covers/${b.coverImage}`;
+  if (b._id && (b.coverImageData || b.coverImage)) {
+    b.coverImageUrl = `${baseUrl}/api/books/${b._id}/cover`;
   } else {
     b.coverImageUrl = null;
   }

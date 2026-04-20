@@ -80,6 +80,16 @@ const BookSchema = new mongoose.Schema(
       default: null,
     },
 
+    coverImageData: {
+      type: String,
+      default: null,
+    },
+
+    coverImageContentType: {
+      type: String,
+      default: null,
+    },
+
     // 📥 E-book file (PDF / EPUB)
     ebookFile: {
       type: String, // filename in /uploads/ebooks

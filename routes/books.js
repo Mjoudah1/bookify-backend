@@ -161,6 +161,19 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
+const storeCoverImageData = (book, coverFile) => {
+  if (!book || !coverFile?.path) return;
+
+  try {
+    const fileBuffer = fs.readFileSync(coverFile.path);
+    book.coverImageData = fileBuffer.toString('base64');
+    book.coverImageContentType =
+      coverFile.mimetype || 'application/octet-stream';
+  } catch (error) {
+    console.warn('Failed to cache cover image in database:', error.message);
+  }
+};
+
 /* ============================================
    🔗 Helper: Add URLs (coverImageUrl + ebookUrl)
 ============================================ */
@@ -169,8 +182,8 @@ const mapBookWithUrls = (req, book) => {
   const baseUrl = `${req.protocol}://${req.get('host')}`;
   const obj = book.toObject();
 
-  if (obj.coverImage) {
-    obj.coverImageUrl = `${baseUrl}/uploads/covers/${obj.coverImage}`;
+  if (obj._id && (obj.coverImageData || obj.coverImage)) {
+    obj.coverImageUrl = `${baseUrl}/api/books/${obj._id}/cover`;
   } else {
     obj.coverImageUrl = null;
   }
@@ -437,6 +450,10 @@ router.post(
         purchasePrice: numericPurchasePrice,
         availableInSubscription: subscriptionFlag,
       });
+
+      if (coverImage) {
+        storeCoverImageData(newBook, coverImage);
+      }
 
       await newBook.save();
       const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -761,6 +778,7 @@ router.put(
           safeUnlink(path.join(coversDir, book.coverImage));
         }
         book.coverImage = newCover.filename;
+        storeCoverImageData(book, newCover);
       }
 
       if (newEbook) {
@@ -822,6 +840,9 @@ router.delete('/:id', auth(['admin']), async (req, res) => {
     if (book.coverImage) {
       safeUnlink(path.join(coversDir, book.coverImage));
     }
+
+    book.coverImageData = null;
+    book.coverImageContentType = null;
 
     if (book.ebookFile) {
       safeUnlink(path.join(ebooksDir, book.ebookFile));
@@ -1147,6 +1168,42 @@ router.post('/:id/buy', auth(['user', 'admin']), async (req, res) => {
     console.error('❌ Buy book error:', error);
     return res.status(500).json({
       message: 'Server error while creating buy transaction.',
+      error: error.message,
+    });
+  }
+});
+
+router.get('/:id/cover', async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id).select(
+      'coverImage coverImageData coverImageContentType'
+    );
+
+    if (!book) {
+      return res.status(404).json({ message: 'Book not found.' });
+    }
+
+    if (book.coverImageData) {
+      res.setHeader(
+        'Content-Type',
+        book.coverImageContentType || 'image/jpeg'
+      );
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(Buffer.from(book.coverImageData, 'base64'));
+    }
+
+    if (book.coverImage) {
+      const filePath = path.join(coversDir, book.coverImage);
+      if (fs.existsSync(filePath)) {
+        return res.sendFile(filePath);
+      }
+    }
+
+    return res.status(404).json({ message: 'Cover image not found.' });
+  } catch (error) {
+    console.error('Error serving cover image:', error);
+    return res.status(500).json({
+      message: 'Server error while loading cover image.',
       error: error.message,
     });
   }
