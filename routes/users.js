@@ -315,15 +315,14 @@ router.post('/:id/cancel-subscription', auth(['admin']), async (req, res) => {
 ========================================================= */
 router.delete('/:id', auth(['admin']), async (req, res) => {
   try {
-    // prevent deleting yourself
-    if (req.user.id === req.params.id) {
-      return res
-        .status(400)
-        .json({ message: 'You cannot delete your own admin account.' });
-    }
-
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: 'User not found.' });
+
+    if (String(user.role).toLowerCase() === 'admin') {
+      return res.status(403).json({
+        message: 'Admin accounts cannot be deleted.',
+      });
+    }
 
     await user.deleteOne();
 
