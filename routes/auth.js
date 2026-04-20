@@ -47,57 +47,81 @@ const getSubscriptionStatus = (user) => {
 
 const DEFAULT_FRONTEND_URL = 'https://bookify-frontend-877g.vercel.app';
 const FRONTEND_URL = process.env.FRONTEND_URL || DEFAULT_FRONTEND_URL;
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000';
+const BACKEND_URL = process.env.BACKEND_URL || '';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
-const GOOGLE_REDIRECT_URI =
-  process.env.GOOGLE_REDIRECT_URI ||
-  `${BACKEND_URL}/api/auth/social/google/callback`;
-
-const X_CLIENT_ID = process.env.X_CLIENT_ID || '';
-const X_CLIENT_SECRET = process.env.X_CLIENT_SECRET || '';
-const X_REDIRECT_URI =
-  process.env.X_REDIRECT_URI ||
-  `${BACKEND_URL}/api/auth/social/x/callback`;
-
-const base64UrlEncode = (value) =>
-  Buffer.from(value)
-    .toString('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
-
-const sha256Base64Url = (value) =>
-  crypto
-    .createHash('sha256')
-    .update(value)
-    .digest('base64')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/g, '');
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || '';
 
 const createSocialState = (payload) =>
   jwt.sign(payload, JWT_SECRET, { expiresIn: '10m' });
 
 const verifySocialState = (state) => jwt.verify(state, JWT_SECRET);
 
-const buildFrontendSocialRedirect = (params) => {
-  const search = new URLSearchParams(params);
-  return `${FRONTEND_URL}/auth/social/callback?${search.toString()}`;
+const extractOrigin = (value) => {
+  if (!value) return '';
+
+  try {
+    return new URL(value).origin;
+  } catch {
+    return '';
+  }
 };
 
-const redirectSocialError = (res, message) =>
+const getFrontendOrigins = () =>
+  [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    FRONTEND_URL,
+    process.env.FRONTEND_URL,
+  ]
+    .filter(Boolean)
+    .map((value) => extractOrigin(value))
+    .filter(Boolean);
+
+const isAllowedFrontendOrigin = (origin) => {
+  if (!origin) return false;
+
+  if (getFrontendOrigins().includes(origin)) {
+    return true;
+  }
+
+  try {
+    const parsed = new URL(origin);
+    return /\.vercel\.app$/i.test(parsed.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const resolveFrontendUrl = (candidateOrigin) =>
+  isAllowedFrontendOrigin(candidateOrigin)
+    ? candidateOrigin
+    : extractOrigin(FRONTEND_URL) || DEFAULT_FRONTEND_URL;
+
+const resolveBackendUrl = (req) =>
+  BACKEND_URL || `${req.protocol}://${req.get('host')}`;
+
+const resolveGoogleRedirectUri = (req) =>
+  GOOGLE_REDIRECT_URI ||
+  `${resolveBackendUrl(req)}/api/auth/social/google/callback`;
+
+const buildFrontendSocialRedirect = (frontendUrl, params) => {
+  const search = new URLSearchParams(params);
+  return `${resolveFrontendUrl(frontendUrl)}/auth/social/callback?${search.toString()}`;
+};
+
+const redirectSocialError = (res, frontendUrl, message) =>
   res.redirect(
-    buildFrontendSocialRedirect({
+    buildFrontendSocialRedirect(frontendUrl, {
       error: message || 'Social login failed.',
     })
   );
 
-const getGoogleAuthUrl = (state) => {
+const getGoogleAuthUrl = (state, redirectUri) => {
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: GOOGLE_REDIRECT_URI,
+    redirect_uri: redirectUri,
     response_type: 'code',
     scope: 'openid email profile',
     access_type: 'offline',
@@ -106,20 +130,6 @@ const getGoogleAuthUrl = (state) => {
   });
 
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
-};
-
-const getXAuthUrl = (state, codeChallenge) => {
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: X_CLIENT_ID,
-    redirect_uri: X_REDIRECT_URI,
-    scope: 'users.read tweet.read offline.access',
-    state,
-    code_challenge: codeChallenge,
-    code_challenge_method: 'S256',
-  });
-
-  return `https://twitter.com/i/oauth2/authorize?${params.toString()}`;
 };
 
 const createSyntheticEmail = (provider, providerId) =>
@@ -141,7 +151,7 @@ const findOrCreateSocialUser = async ({
   email,
   username,
 }) => {
-  const providerField = provider === 'google' ? 'googleId' : 'xId';
+  const providerField = 'googleId';
   const safeEmail = String(email || '').trim().toLowerCase();
 
   let user = await User.findOne({ [providerField]: providerId });
@@ -597,45 +607,37 @@ router.post('/forgot-password/reset', async (req, res) => {
 router.get('/social/:provider/start', (req, res) => {
   try {
     const { provider } = req.params;
+    const returnTo = resolveFrontendUrl(
+      req.query.returnTo || req.get('origin') || extractOrigin(req.get('referer'))
+    );
 
     if (provider === 'google') {
       if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
         return redirectSocialError(
           res,
+          returnTo,
           'Google login is not configured on the server.'
         );
       }
 
       const state = createSocialState({
         provider: 'google',
-      });
-
-      return res.redirect(getGoogleAuthUrl(state));
-    }
-
-    if (provider === 'x') {
-      if (!X_CLIENT_ID || !X_CLIENT_SECRET) {
-        return redirectSocialError(
-          res,
-          'X login is not configured on the server.'
-        );
-      }
-
-      const codeVerifier = base64UrlEncode(crypto.randomBytes(48));
-      const state = createSocialState({
-        provider: 'x',
-        codeVerifier,
+        returnTo,
       });
 
       return res.redirect(
-        getXAuthUrl(state, sha256Base64Url(codeVerifier))
+        getGoogleAuthUrl(state, resolveGoogleRedirectUri(req))
       );
     }
 
-    return redirectSocialError(res, 'Unsupported social provider.');
+    return redirectSocialError(res, returnTo, 'Unsupported social provider.');
   } catch (error) {
     console.error('Social auth start error:', error);
-    return redirectSocialError(res, 'Unable to start social login.');
+    return redirectSocialError(
+      res,
+      req.query.returnTo || req.get('origin'),
+      'Unable to start social login.'
+    );
   }
 });
 
@@ -644,16 +646,20 @@ router.get('/social/google/callback', async (req, res) => {
     const { code, state, error } = req.query;
 
     if (error) {
-      return redirectSocialError(res, 'Google login was cancelled.');
+      return redirectSocialError(res, null, 'Google login was cancelled.');
     }
 
     if (!code || !state) {
-      return redirectSocialError(res, 'Missing Google authorization data.');
+      return redirectSocialError(res, null, 'Missing Google authorization data.');
     }
 
     const decodedState = verifySocialState(state);
     if (decodedState.provider !== 'google') {
-      return redirectSocialError(res, 'Invalid Google login state.');
+      return redirectSocialError(
+        res,
+        decodedState.returnTo,
+        'Invalid Google login state.'
+      );
     }
 
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -665,7 +671,7 @@ router.get('/social/google/callback', async (req, res) => {
         code: String(code),
         client_id: GOOGLE_CLIENT_ID,
         client_secret: GOOGLE_CLIENT_SECRET,
-        redirect_uri: GOOGLE_REDIRECT_URI,
+        redirect_uri: resolveGoogleRedirectUri(req),
         grant_type: 'authorization_code',
       }),
     });
@@ -674,6 +680,7 @@ router.get('/social/google/callback', async (req, res) => {
     if (!tokenRes.ok || !tokenData.access_token) {
       return redirectSocialError(
         res,
+        decodedState.returnTo,
         tokenData.error_description || 'Google token exchange failed.'
       );
     }
@@ -689,7 +696,11 @@ router.get('/social/google/callback', async (req, res) => {
 
     const profile = await profileRes.json().catch(() => ({}));
     if (!profileRes.ok || !profile.sub) {
-      return redirectSocialError(res, 'Failed to fetch Google profile.');
+      return redirectSocialError(
+        res,
+        decodedState.returnTo,
+        'Failed to fetch Google profile.'
+      );
     }
 
     const user = await findOrCreateSocialUser({
@@ -701,7 +712,7 @@ router.get('/social/google/callback', async (req, res) => {
 
     const token = signUserToken(user, getSubscriptionStatus(user));
     return res.redirect(
-      buildFrontendSocialRedirect({
+      buildFrontendSocialRedirect(decodedState.returnTo, {
         token,
         hasInterests:
           Array.isArray(user.interests) && user.interests.length > 0
@@ -711,90 +722,7 @@ router.get('/social/google/callback', async (req, res) => {
     );
   } catch (error) {
     console.error('Google social callback error:', error);
-    return redirectSocialError(res, 'Google login failed.');
-  }
-});
-
-router.get('/social/x/callback', async (req, res) => {
-  try {
-    const { code, state, error } = req.query;
-
-    if (error) {
-      return redirectSocialError(res, 'X login was cancelled.');
-    }
-
-    if (!code || !state) {
-      return redirectSocialError(res, 'Missing X authorization data.');
-    }
-
-    const decodedState = verifySocialState(state);
-    if (decodedState.provider !== 'x' || !decodedState.codeVerifier) {
-      return redirectSocialError(res, 'Invalid X login state.');
-    }
-
-    const basicAuth = Buffer.from(
-      `${X_CLIENT_ID}:${X_CLIENT_SECRET}`
-    ).toString('base64');
-
-    const tokenRes = await fetch('https://api.x.com/2/oauth2/token', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        Authorization: `Basic ${basicAuth}`,
-      },
-      body: new URLSearchParams({
-        code: String(code),
-        grant_type: 'authorization_code',
-        client_id: X_CLIENT_ID,
-        redirect_uri: X_REDIRECT_URI,
-        code_verifier: decodedState.codeVerifier,
-      }),
-    });
-
-    const tokenData = await tokenRes.json().catch(() => ({}));
-    if (!tokenRes.ok || !tokenData.access_token) {
-      return redirectSocialError(
-        res,
-        tokenData.error_description || 'X token exchange failed.'
-      );
-    }
-
-    const profileRes = await fetch(
-      'https://api.x.com/2/users/me?user.fields=name,username,profile_image_url',
-      {
-        headers: {
-          Authorization: `Bearer ${tokenData.access_token}`,
-        },
-      }
-    );
-
-    const profileData = await profileRes.json().catch(() => ({}));
-    const profile = profileData?.data;
-
-    if (!profileRes.ok || !profile?.id) {
-      return redirectSocialError(res, 'Failed to fetch X profile.');
-    }
-
-    const user = await findOrCreateSocialUser({
-      provider: 'x',
-      providerId: profile.id,
-      email: createSyntheticEmail('x', profile.id),
-      username: profile.name || profile.username || `x_${profile.id}`,
-    });
-
-    const token = signUserToken(user, getSubscriptionStatus(user));
-    return res.redirect(
-      buildFrontendSocialRedirect({
-        token,
-        hasInterests:
-          Array.isArray(user.interests) && user.interests.length > 0
-            ? 'true'
-            : 'false',
-      })
-    );
-  } catch (error) {
-    console.error('X social callback error:', error);
-    return redirectSocialError(res, 'X login failed.');
+    return redirectSocialError(res, null, 'Google login failed.');
   }
 });
 
