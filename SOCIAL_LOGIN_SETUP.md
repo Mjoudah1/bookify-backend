@@ -7,7 +7,7 @@
 3. Configure the OAuth consent screen / branding.
 4. Create an OAuth Client ID of type `Web application`.
 5. Add these values:
-   - Authorized JavaScript origin: `http://localhost:3000`
+   - Authorized JavaScript origin: `https://bookify-frontend-877g.vercel.app`
    - Authorized redirect URI: `http://localhost:5000/api/auth/social/google/callback`
 6. Copy the generated values into `backend/.env`:
    - `GOOGLE_CLIENT_ID`
@@ -38,3 +38,7 @@ Reference:
 1. Restart the backend server.
 2. Restart the frontend server if it is running.
 3. Try `Continue with Google` or `Continue with X` again.
+
+## Local development note
+
+- You can still add `http://localhost:3000` as an extra JavaScript origin for local testing.

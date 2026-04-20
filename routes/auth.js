@@ -45,7 +45,8 @@ const getSubscriptionStatus = (user) => {
   return new Date(expiresAt) > now;
 };
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const DEFAULT_FRONTEND_URL = 'https://bookify-frontend-877g.vercel.app';
+const FRONTEND_URL = process.env.FRONTEND_URL || DEFAULT_FRONTEND_URL;
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:5000';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || '';

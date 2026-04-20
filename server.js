@@ -9,8 +9,11 @@ dotenv.config();
 const app = express();
 app.set('trust proxy', 1);
 
+const DEFAULT_FRONTEND_URL = 'https://bookify-frontend-877g.vercel.app';
+
 const allowedOrigins = [
   'http://localhost:3000',
+  DEFAULT_FRONTEND_URL,
   process.env.FRONTEND_URL,
   ...(process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim())
